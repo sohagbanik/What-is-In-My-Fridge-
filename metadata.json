@@ -1,0 +1,6 @@
+{
+  "name": "Kitchen Assistant",
+  "description": "AI-powered fridge scanner, smart recipe suggestions, pantry inventory tracking, and step-by-step interactive cooking guide.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
