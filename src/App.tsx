@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ActiveTab, PantryItem, Recipe } from './types';
-import { initialPantryItems, initialRecipes } from './data/mockData';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { DesktopSidebar } from './components/DesktopSidebar';
@@ -15,9 +14,10 @@ import { SavedView } from './components/views/SavedView';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [pantryItems, setPantryItems] = useState<PantryItem[]>(initialPantryItems);
-  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(initialRecipes[0]);
+  // Start with EMPTY state — all data comes from real AI scanning
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null);
   const [isCookingModeOpen, setIsCookingModeOpen] = useState(false);
 

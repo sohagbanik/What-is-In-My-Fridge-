@@ -244,12 +244,19 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 
   // ── Capture a single frame from webcam and upload to /scan-image ──
   const handleCapture = async () => {
+    // If live items are already detected, accept them directly
+    if (liveItems.length > 0) {
+      onScanComplete(liveItems);
+      setActiveTab('scanned-review');
+      return;
+    }
+
     setIsAnalyzing(true);
     try {
-      let blob: Blob | null = null;
+      const formData = new FormData();
 
-      // If webcam is active, capture a frame from the video element
       if (useLiveCamera && videoRef.current && canvasRef.current) {
+        // Webcam active — capture a frame from the video element
         const video = videoRef.current;
         const canvas = canvasRef.current;
         canvas.width = video.videoWidth;
@@ -257,50 +264,37 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(video, 0, 0);
-          blob = await new Promise<Blob | null>(resolve =>
+          const blob = await new Promise<Blob | null>(resolve =>
             canvas.toBlob(resolve, 'image/jpeg', 0.85)
           );
+          if (blob) {
+            formData.append('file', blob, 'capture.jpg');
+          }
+        }
+      } else {
+        // No webcam — fetch the stock fridge background image and send it for real AI detection
+        try {
+          const imgUrl = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBwqyI9v0b09z_jZW-DMXdhkWlvrh84xsMpxS_5wRv2ZO41SrFPpwX5I3buOqPOjmLx-ius8pSHCGv8j0OQ2o_D7abQwtoBLqaHpKKGgS7Pp5s7drvJ-N0dvtSlzSdfaps6_0Zw5dcxlPWuNiRkoWikegGhUf_Zu0l_SWeIUX7oXJW8wZYMP7VjQZjBKkr_J00Vtkz6mRaT2xddHnBD4wu2nQJkzbYlgXxd-CHeXYQC87OtqbnbaWuBfg';
+          const imgResponse = await fetch(imgUrl);
+          const imgBlob = await imgResponse.blob();
+          formData.append('file', imgBlob, 'fridge-demo.jpg');
+        } catch {
+          // If fetch fails, prompt user to upload
+          console.warn('Could not fetch demo image, please upload a photo instead');
+          setIsAnalyzing(false);
+          return;
         }
       }
 
-      if (blob) {
-        // Send the captured frame as a file upload
-        const formData = new FormData();
-        formData.append('file', blob, 'capture.jpg');
-
-        const response = await fetch(ENDPOINTS.SCAN_IMAGE, {
-          method: 'POST',
-          body: formData,
-        });
-        const data = await response.json();
-        if (data.success && data.items) {
-          const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
-          onScanComplete(mapped);
-        }
-      } else {
-        // No webcam — send a dummy request (backend handles no-image gracefully)
-        const formData = new FormData();
-        // Create a tiny 1x1 transparent PNG as a placeholder
-        const emptyBlob = new Blob([new Uint8Array([
-          0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00,
-          0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01,
-          0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-          0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
-          0x54, 0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01,
-          0xE5, 0x27, 0xDE, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
-          0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
-        ])], { type: 'image/png' });
-        formData.append('file', emptyBlob, 'placeholder.png');
-
-        const response = await fetch(ENDPOINTS.SCAN_IMAGE, {
-          method: 'POST',
-          body: formData,
-        });
-        const data = await response.json();
-        if (data.success && data.items) {
-          const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
-          onScanComplete(mapped);
-        }
+      // Send to backend AI
+      const response = await fetch(ENDPOINTS.SCAN_IMAGE, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (data.success && data.items) {
+        const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
+        onScanComplete(mapped);
       }
     } catch (e) {
       console.error('Scan error:', e);
