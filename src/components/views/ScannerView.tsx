@@ -73,11 +73,22 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Cleanup WebSocket and interval on unmount ──
+  // ── Attach stream to video element when mounted or when stream updates ──
   useEffect(() => {
+    if (useLiveCamera && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(e => console.warn('Video play error:', e));
+    }
+  }, [useLiveCamera]);
+
+  // ── Auto-start camera on mount ──
+  useEffect(() => {
+    startCamera();
+
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
@@ -87,9 +98,9 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
         clearInterval(liveIntervalRef.current);
         liveIntervalRef.current = null;
       }
-      // Stop webcam tracks
-      if (videoRef.current?.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
       }
     };
   }, []);
@@ -97,23 +108,30 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
   // ── Start webcam ──
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setUseLiveCamera(true);
+      if (!streamRef.current) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        streamRef.current = stream;
       }
+      if (videoRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.play().catch(() => {});
+      }
+      setUseLiveCamera(true);
     } catch (err) {
-      console.warn('Webcam unavailable, using simulated scanner', err);
+      console.warn('Webcam permission denied or camera unavailable, using simulated scanner background', err);
       setUseLiveCamera(false);
     }
   };
 
   // ── Stop webcam + live scan ──
   const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     if (wsRef.current) {
@@ -305,15 +323,14 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Background Camera Viewport */}
-      {useLiveCamera ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="absolute inset-0 w-full h-full object-cover z-0"
-        />
-      ) : (
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={`absolute inset-0 w-full h-full object-cover z-0 ${useLiveCamera ? 'block' : 'hidden'}`}
+      />
+      {!useLiveCamera && (
         <div
           className="absolute inset-0 w-full h-full bg-cover bg-center z-0 transition-transform duration-700"
           style={{
