@@ -92,8 +92,10 @@ export default function App() {
           {activeTab === 'recipes' && (
             <RecipesFeedView
               recipes={recipes}
+              pantryItems={pantryItems}
               onSelectRecipe={handleSelectRecipe}
               onToggleBookmark={handleToggleBookmark}
+              onAddRecipes={(newRecipes) => setRecipes(prev => [...newRecipes, ...prev])}
               setActiveTab={setActiveTab}
             />
           )}

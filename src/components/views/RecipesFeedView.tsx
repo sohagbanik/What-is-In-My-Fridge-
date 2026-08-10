@@ -1,20 +1,64 @@
 import React, { useState } from 'react';
-import { ActiveTab, Recipe } from '../../types';
+import { ActiveTab, Recipe, PantryItem } from '../../types';
+import { ENDPOINTS } from '../../apiConfig';
 
 interface RecipesFeedViewProps {
   recipes: Recipe[];
+  pantryItems: PantryItem[];
   onSelectRecipe: (recipe: Recipe) => void;
   onToggleBookmark: (recipeId: string) => void;
+  onAddRecipes: (recipes: Recipe[]) => void;
   setActiveTab: (tab: ActiveTab) => void;
+}
+
+// ── Helper: Map backend GeneratedRecipe → frontend Recipe ──
+function mapGeneratedToRecipe(data: any, index: number): Recipe {
+  const prepMinutes = parseInt(data.prep_time) || 10;
+  const cookMinutes = parseInt(data.cook_time) || 15;
+
+  return {
+    id: `ai-${Date.now()}-${index}`,
+    title: data.title || 'AI Generated Recipe',
+    author: 'AI Chef',
+    imageUrl: `https://picsum.photos/seed/${Date.now() + index}/800/600`, // Placeholder image
+    prepTime: data.prep_time || `${prepMinutes} min`,
+    cookTime: data.cook_time || `${cookMinutes} min`,
+    prepMinutes,
+    cookMinutes,
+    level: data.difficulty || 'Medium',
+    calories: data.calories_estimate || 350,
+    servings: data.servings || 2,
+    matchPercentage: 100,
+    ingredients: (data.ingredients_used || []).map((name: string, i: number) => ({
+      id: `ai-ing-${Date.now()}-${i}`,
+      name,
+      amount: 1,
+      unit: 'as needed',
+      inPantry: true,
+    })),
+    smartSubstitutions: [],
+    steps: (data.steps || []).map((step: any) => ({
+      stepNumber: step.step_number,
+      instruction: step.instruction,
+      durationMinutes: step.duration_minutes,
+      tip: step.tip,
+    })),
+    isSaved: false,
+    tags: data.tags || ['AI Generated'],
+  };
 }
 
 export const RecipesFeedView: React.FC<RecipesFeedViewProps> = ({
   recipes,
+  pantryItems,
   onSelectRecipe,
   onToggleBookmark,
+  onAddRecipes,
   setActiveTab,
 }) => {
   const [activeFilter, setActiveFilter] = useState<'All' | '100% Match' | 'Expiring' | 'Quick' | 'Vegetarian'>('All');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   const filteredRecipes = recipes.filter(recipe => {
     if (activeFilter === '100% Match') return recipe.matchPercentage === 100;
@@ -23,6 +67,36 @@ export const RecipesFeedView: React.FC<RecipesFeedViewProps> = ({
     if (activeFilter === 'Vegetarian') return recipe.tags.includes('Vegetarian');
     return true;
   });
+
+  // ── Call FastAPI backend to generate recipes from pantry ingredients ──
+  const handleGenerateRecipes = async () => {
+    setIsGenerating(true);
+    setGenerateError(null);
+
+    try {
+      const ingredientNames = pantryItems.map(item => item.name);
+
+      const response = await fetch(ENDPOINTS.GENERATE_RECIPE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ingredients: ingredientNames }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.recipes?.length > 0) {
+        const mapped = data.recipes.map((r: any, i: number) => mapGeneratedToRecipe(r, i));
+        onAddRecipes(mapped);
+      } else {
+        setGenerateError(data.message || 'No recipes generated');
+      }
+    } catch (err) {
+      console.error('Recipe generation error:', err);
+      setGenerateError('Failed to connect to AI backend. Is the server running?');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto pb-12">
@@ -34,6 +108,34 @@ export const RecipesFeedView: React.FC<RecipesFeedViewProps> = ({
         <p className="text-sm md:text-base text-[#5b403a]">
           We found {filteredRecipes.length} recipes based on your pantry.
         </p>
+      </section>
+
+      {/* AI Generate Button */}
+      <section>
+        <button
+          onClick={handleGenerateRecipes}
+          disabled={isGenerating || pantryItems.length === 0}
+          className={`w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl font-bold text-sm transition-all shadow-lg active:scale-[0.98] cursor-pointer ${
+            isGenerating
+              ? 'bg-[#e9e8e4] text-[#5b403a] cursor-wait'
+              : 'bg-gradient-to-r from-[#b72301] to-[#ff5733] text-white hover:shadow-xl hover:brightness-110'
+          } ${pantryItems.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {isGenerating ? (
+            <>
+              <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
+              <span>AI is cooking up recipes...</span>
+            </>
+          ) : (
+            <>
+              <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+              <span>Generate AI Recipes from {pantryItems.length} Ingredients</span>
+            </>
+          )}
+        </button>
+        {generateError && (
+          <p className="mt-2 text-xs text-[#ba1a1a] text-center">{generateError}</p>
+        )}
       </section>
 
       {/* Scrollable Filter Chips */}
