@@ -85,9 +85,11 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     }
   }, [useLiveCamera]);
 
-  // ── Auto-start camera on mount ──
+  // ── Auto-start camera and live scan on mount ──
   useEffect(() => {
-    startCamera();
+    startCamera().then(() => {
+      startLiveScan();
+    });
 
     return () => {
       if (wsRef.current) {
@@ -104,6 +106,32 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
       }
     };
   }, []);
+
+  // ── Helper: Category Icon ──
+  const getCategoryIcon = (category?: string) => {
+    switch ((category || '').toLowerCase()) {
+      case 'produce': return 'eco';
+      case 'dairy': return 'water_drop';
+      case 'protein': return 'egg';
+      case 'pantry': return 'inventory_2';
+      case 'beverage': return 'local_bar';
+      case 'condiment': return 'soup_kitchen';
+      default: return 'nutrition';
+    }
+  };
+
+  // ── Helper: Dynamic Screen Box Positions ──
+  const getBoxPosition = (index: number) => {
+    const positions = [
+      { top: '32%', left: '16%', width: '30%', height: '26%' },
+      { top: '16%', right: '14%', width: '28%', height: '34%' },
+      { bottom: '28%', left: '20%', width: '34%', height: '24%' },
+      { bottom: '26%', right: '16%', width: '30%', height: '28%' },
+      { top: '48%', left: '38%', width: '25%', height: '22%' },
+      { top: '20%', left: '42%', width: '26%', height: '20%' },
+    ];
+    return positions[index % positions.length];
+  };
 
   // ── Start webcam ──
   const startCamera = async () => {
@@ -347,36 +375,52 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 
       {/* Detected Items Bounding Boxes */}
       <div className="absolute inset-0 z-10 pointer-events-none">
-        {/* Tomato Box */}
-        <div className="absolute top-[35%] left-[20%] w-[30%] h-[25%] border-2 border-[#b72301] rounded-lg detect-box flex flex-col justify-end p-2 bg-[#b72301]/10">
-          <div className="bg-[#b72301]/90 text-white rounded-md px-2 py-1 self-start transform -translate-y-full mb-2 flex items-center gap-1 backdrop-blur-sm text-xs font-semibold shadow-sm">
-            <span className="material-symbols-outlined text-[14px]">local_pizza</span>
-            <span>Tomatoes</span>
-            <span className="opacity-80 ml-1">95%</span>
-          </div>
-        </div>
+        {liveItems.length > 0 ? (
+          liveItems.map((item, index) => {
+            const pos = getBoxPosition(index);
+            const icon = getCategoryIcon(item.category);
+            return (
+              <div
+                key={item.id || index}
+                className="absolute border-2 border-[#b72301] rounded-xl detect-box flex flex-col justify-between p-2 bg-[#b72301]/15 backdrop-blur-[1px] transition-all duration-500 shadow-[0_0_15px_rgba(183,35,1,0.3)]"
+                style={{ ...pos, animationDelay: `${index * 0.2}s` }}
+              >
+                {/* Item Label Badge */}
+                <div className="bg-[#b72301]/95 text-white rounded-lg px-2.5 py-1.5 self-start transform -translate-y-full mb-1 flex items-center gap-1.5 backdrop-blur-md text-xs font-bold shadow-lg border border-white/20">
+                  <span className="material-symbols-outlined text-[15px]">{icon}</span>
+                  <span>{item.name}</span>
+                  {item.confidence && (
+                    <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px] opacity-90">
+                      {item.confidence}%
+                    </span>
+                  )}
+                </div>
 
-        {/* Milk Box */}
-        <div
-          className="absolute top-[15%] right-[10%] w-[25%] h-[40%] border-2 border-[#b72301] rounded-lg detect-box flex flex-col justify-end p-2 bg-[#b72301]/10"
-          style={{ animationDelay: '0.5s' }}
-        >
-          <div className="bg-[#b72301]/90 text-white rounded-md px-2 py-1 self-start transform -translate-y-full mb-2 flex items-center gap-1 backdrop-blur-sm text-xs font-semibold shadow-sm">
-            <span className="material-symbols-outlined text-[14px]">water_drop</span>
-            <span>Milk</span>
-            <span className="opacity-80 ml-1">90%</span>
+                {/* Freshness/Quantity Tag */}
+                <div className="self-end bg-black/70 backdrop-blur-md text-white rounded-md px-2 py-0.5 text-[10px] font-semibold flex items-center gap-1 border border-white/10">
+                  <span className={`w-1.5 h-1.5 rounded-full ${item.status === 'fresh' ? 'bg-green-400' : item.status === 'warning' ? 'bg-amber-400' : 'bg-red-400'}`} />
+                  <span>{item.expiryText || 'Detected'}</span>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          /* Active Reticle / Scanning Spinner Box when no items detected yet */
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-64 h-64 border-2 border-dashed border-white/40 rounded-3xl flex flex-col justify-center items-center bg-black/10 backdrop-blur-[1px] relative animate-pulse">
+              <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-[#b72301]" />
+              <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-[#b72301]" />
+              <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-[#b72301]" />
+              <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-[#b72301]" />
+              <div className="bg-black/70 text-white rounded-full px-3.5 py-1.5 flex items-center gap-2 backdrop-blur-md text-xs font-semibold border border-white/15">
+                <span className="material-symbols-outlined text-[16px] animate-spin text-[#b72301]">
+                  progress_activity
+                </span>
+                <span>{isAnalyzing ? 'Analyzing AI...' : wsRef.current ? 'AI Scanning Live...' : 'Ready to Scan'}</span>
+              </div>
+            </div>
           </div>
-        </div>
-
-        {/* Scanning Spinner Box */}
-        <div className="absolute bottom-[40%] left-[60%] w-[20%] h-[20%] border-2 border-dashed border-white/50 rounded-lg flex flex-col justify-center items-center bg-white/5">
-          <div className="bg-black/60 text-white rounded-full px-2.5 py-1 flex items-center gap-1.5 backdrop-blur-md text-xs">
-            <span className="material-symbols-outlined text-[14px] animate-spin">
-              progress_activity
-            </span>
-            <span>Scanning</span>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Live Scan Status Bar */}
