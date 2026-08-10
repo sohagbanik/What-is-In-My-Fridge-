@@ -210,58 +210,32 @@ def preprocess_image(image_bytes: bytes) -> str:
     if image is None:
         raise ValueError("Failed to decode image — the file may be corrupted or not a valid image format.")
 
-    # ── Step 2: Resize — cap the maximum dimension at 1280 pixels ──
-    # Large images waste bandwidth and slow down the API.
-    # We maintain the aspect ratio so the image doesn't get distorted.
-    max_dimension = 1280
+    # ── Step 2: Resize — cap the maximum dimension at 512 pixels ──
+    # Downscaling to 512px keeps the token count well under Groq's 8,000 TPM rate limit.
+    max_dimension = 512
     height, width = image.shape[:2]  # shape is (height, width, channels)
 
     if max(height, width) > max_dimension:
-        # Calculate the scale factor to bring the largest side down to 1280.
+        # Calculate the scale factor to bring the largest side down to 512.
         scale = max_dimension / max(height, width)
         new_width = int(width * scale)
         new_height = int(height * scale)
 
         # cv2.INTER_AREA is the best interpolation for downscaling.
-        # It produces the least aliasing/moiré artifacts.
         image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
         print(f"   [RESIZE] {width}x{height} -> {new_width}x{new_height}")
 
     # ── Step 3: Contrast Enhancement using CLAHE ──
-    # Fridges often have dark corners and uneven lighting.
-    # CLAHE (Contrast Limited Adaptive Histogram Equalization) improves
-    # local contrast without over-amplifying noise.
-    #
-    # How it works:
-    #   1. Convert BGR → LAB color space (L = lightness, A/B = color)
-    #   2. Apply CLAHE only to the L (lightness) channel
-    #   3. Convert back to BGR
-    #
-    # This brightens dark areas while keeping well-lit areas natural.
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-
-    # Split into individual channels: L (lightness), A, B
     l_channel, a_channel, b_channel = cv2.split(lab)
-
-    # Create a CLAHE object:
-    #   clipLimit=2.0  — limits contrast amplification to prevent noise
-    #   tileGridSize=(8,8) — divides the image into 8x8 tiles for local processing
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-
-    # Apply CLAHE to the lightness channel only
     l_channel = clahe.apply(l_channel)
-
-    # Merge the enhanced L channel back with the original A and B channels
     enhanced_lab = cv2.merge([l_channel, a_channel, b_channel])
-
-    # Convert back from LAB to BGR color space
     image = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
 
     # ── Step 4: Encode to JPEG bytes in memory ──
-    # cv2.imencode returns (success_bool, encoded_bytes).
-    # We encode as JPEG with 85% quality — good balance of size and clarity.
-    # This happens entirely in memory (no temp files on disk).
-    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+    # 65% quality ensures minimal payload size while retaining food item visibility.
+    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 65]
     success, jpeg_buffer = cv2.imencode(".jpg", image, encode_params)
 
     if not success:
@@ -326,7 +300,7 @@ If no food items are visible, return an empty array: []"""
     # We use the chat completions endpoint with an image_url content part.
     # The image is passed as a base64 data URI (no external URL needed).
     response = groq_client.chat.completions.create(
-        model="qwen-2.5-vl-72b-instruct",   # Groq's vision-capable model
+        model="qwen/qwen3.6-27b",   # Groq's current vision-capable model (multimodal)
         messages=[
             {
                 "role": "user",
@@ -345,11 +319,16 @@ If no food items are visible, return an empty array: []"""
             }
         ],
         temperature=0.3,     # Low temperature = more deterministic/accurate results
-        max_tokens=2048,     # Generous limit for long ingredient lists
+        max_tokens=8192,     # Generous limit — thinking models use tokens for reasoning
     )
 
     # ── Parse the JSON response ──
     raw_text = response.choices[0].message.content.strip()
+
+    # Thinking models (e.g. qwen3.6) wrap output in <think>...</think> blocks.
+    # Strip these before attempting JSON parse.
+    import re
+    raw_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
 
     # Sometimes the model wraps JSON in markdown code fences. Strip them.
     if raw_text.startswith("```"):

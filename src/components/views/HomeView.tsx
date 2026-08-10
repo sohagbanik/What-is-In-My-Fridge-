@@ -51,88 +51,63 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </button>
       </section>
 
-      {/* Use First Banner (Expiry Alerts) */}
-      <section className="mt-2">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-headline font-bold text-[#1b1c1a]">Use First</h2>
-          <button
-            onClick={() => setActiveTab('pantry')}
-            className="text-sm font-semibold text-[#b72301] hover:underline cursor-pointer"
-          >
-            View All
-          </button>
-        </div>
-
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-3 -mx-4 px-4 md:mx-0 md:px-0">
-          {/* Card 1: Spinach */}
-          <div
-            onClick={() => setActiveTab('pantry')}
-            className="bg-white rounded-2xl p-4 min-w-[200px] shrink-0 shadow-[0_4px_20px_0_rgba(183,35,1,0.04)] border border-[#e3e2df] flex flex-col gap-3 relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
-          >
-            <div className="absolute left-0 top-0 bottom-0 w-2 bg-[#ba1a1a]"></div>
-            <div className="pl-2 flex justify-between items-start">
-              <div>
-                <h3 className="text-base font-bold text-[#1b1c1a]">Spinach</h3>
-                <p className="text-xs text-[#5b403a] mt-0.5">Produce Drawer</p>
-              </div>
-              <span className="material-symbols-outlined text-[#ba1a1a] fill text-xl">
-                warning
-              </span>
-            </div>
-            <div className="pl-2 mt-auto">
-              <span className="inline-block bg-[#ffdad6] text-[#93000a] text-xs px-2.5 py-1 rounded-full font-bold">
-                1 day left
-              </span>
-            </div>
+      {/* Use First Banner (Expiry Alerts) — dynamic from pantryItems */}
+      {expiringItems.length > 0 ? (
+        <section className="mt-2">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-headline font-bold text-[#1b1c1a]">Use First</h2>
+            <button
+              onClick={() => setActiveTab('pantry')}
+              className="text-sm font-semibold text-[#b72301] hover:underline cursor-pointer"
+            >
+              View All
+            </button>
           </div>
 
-          {/* Card 2: Heavy Cream */}
-          <div
-            onClick={() => setActiveTab('pantry')}
-            className="bg-white rounded-2xl p-4 min-w-[200px] shrink-0 shadow-[0_4px_20px_0_rgba(183,35,1,0.04)] border border-[#e3e2df] flex flex-col gap-3 relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
-          >
-            <div className="absolute left-0 top-0 bottom-0 w-2 bg-[#835400]"></div>
-            <div className="pl-2 flex justify-between items-start">
-              <div>
-                <h3 className="text-base font-bold text-[#1b1c1a]">Heavy Cream</h3>
-                <p className="text-xs text-[#5b403a] mt-0.5">Top Shelf</p>
-              </div>
-              <span className="material-symbols-outlined text-[#835400] fill text-xl">
-                schedule
-              </span>
-            </div>
-            <div className="pl-2 mt-auto">
-              <span className="inline-block bg-[#ffddb5] text-[#3d2500] text-xs px-2.5 py-1 rounded-full font-bold">
-                2 days left
-              </span>
-            </div>
-          </div>
+          <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-3 -mx-4 px-4 md:mx-0 md:px-0">
+            {expiringItems.slice(0, 5).map(item => {
+              const isRed = item.status === 'critical' || item.daysLeft <= 1;
+              const barColor = isRed ? 'bg-[#ba1a1a]' : 'bg-[#835400]';
+              const iconName = isRed ? 'warning' : 'schedule';
+              const iconColor = isRed ? 'text-[#ba1a1a]' : 'text-[#835400]';
+              const badgeBg = isRed ? 'bg-[#ffdad6] text-[#93000a]' : 'bg-[#ffddb5] text-[#3d2500]';
+              const badgeText = item.daysLeft <= 0 ? 'Expired' : item.daysLeft === 1 ? '1 day left' : `${item.daysLeft} days left`;
 
-          {/* Card 3: Avocados */}
-          <div
-            onClick={() => setActiveTab('pantry')}
-            className="bg-white rounded-2xl p-4 min-w-[200px] shrink-0 shadow-[0_4px_20px_0_rgba(183,35,1,0.04)] border border-[#e3e2df] flex flex-col gap-3 relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
-          >
-            <div className="absolute left-0 top-0 bottom-0 w-2 bg-[#2c694e]"></div>
-            <div className="pl-2 flex justify-between items-start">
-              <div>
-                <h3 className="text-base font-bold text-[#1b1c1a]">Avocados</h3>
-                <p className="text-xs text-[#5b403a] mt-0.5">Countertop</p>
-              </div>
-              <span className="material-symbols-outlined text-[#2c694e] fill text-xl">
-                eco
-              </span>
-            </div>
-            <div className="pl-2 mt-auto">
-              <span className="inline-block bg-[#aeeecb] text-[#316e52] text-xs px-2.5 py-1 rounded-full font-bold">
-                Ripe now
-              </span>
-            </div>
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => setActiveTab('pantry')}
+                  className="bg-white rounded-2xl p-4 min-w-[200px] shrink-0 shadow-[0_4px_20px_0_rgba(183,35,1,0.04)] border border-[#e3e2df] flex flex-col gap-3 relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
+                >
+                  <div className={`absolute left-0 top-0 bottom-0 w-2 ${barColor}`}></div>
+                  <div className="pl-2 flex justify-between items-start">
+                    <div>
+                      <h3 className="text-base font-bold text-[#1b1c1a]">{item.name}</h3>
+                      <p className="text-xs text-[#5b403a] mt-0.5">{item.location || item.category}</p>
+                    </div>
+                    <span className={`material-symbols-outlined ${iconColor} fill text-xl`}>
+                      {iconName}
+                    </span>
+                  </div>
+                  <div className="pl-2 mt-auto">
+                    <span className={`inline-block ${badgeBg} text-xs px-2.5 py-1 rounded-full font-bold`}>
+                      {badgeText}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
-      </section>
+        </section>
+      ) : (
+        <section className="mt-2 p-6 rounded-3xl bg-white border border-[#e4beb6]/20 shadow-sm text-center">
+          <span className="material-symbols-outlined text-5xl text-[#dbdad6] mb-2">kitchen</span>
+          <h2 className="font-headline font-bold text-lg text-[#1b1c1a]">Your kitchen is empty</h2>
+          <p className="text-sm text-[#5b403a] mt-1">Scan your fridge to get started with AI-powered food tracking</p>
+        </section>
+      )}
 
-      {/* Inventory Summary */}
+      {/* Inventory Summary — dynamic counts */}
       <section className="mt-2">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-headline font-bold text-[#1b1c1a]">Inventory</h2>
@@ -160,7 +135,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="mt-2">
               <h3 className="text-base font-bold text-[#1b1c1a]">Produce</h3>
               <p className="text-xs text-[#5b403a] mt-0.5">
-                {getCategoryCount('Produce') || 12} Items
+                {getCategoryCount('Produce')} Items
               </p>
             </div>
           </div>
@@ -179,7 +154,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="mt-2">
               <h3 className="text-base font-bold text-[#1b1c1a]">Dairy</h3>
               <p className="text-xs text-[#5b403a] mt-0.5">
-                {getCategoryCount('Dairy') || 8} Items
+                {getCategoryCount('Dairy')} Items
               </p>
             </div>
           </div>
@@ -198,7 +173,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="mt-2">
               <h3 className="text-base font-bold text-[#1b1c1a]">Pantry</h3>
               <p className="text-xs text-[#5b403a] mt-0.5">
-                {getCategoryCount('Pantry') || 45} Items
+                {getCategoryCount('Pantry')} Items
               </p>
             </div>
           </div>
@@ -217,42 +192,48 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="mt-2">
               <h3 className="text-base font-bold text-[#1b1c1a]">Protein</h3>
               <p className="text-xs text-[#5b403a] mt-0.5">
-                {getCategoryCount('Protein') || 5} Items
+                {getCategoryCount('Protein')} Items
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Suggested Quick Dish Quick Launch */}
+      {/* Quick Action — Scan or Cook */}
       <section className="mt-2 p-5 rounded-3xl bg-white border border-[#e4beb6]/30 shadow-[0_4px_20px_0_rgba(183,35,1,0.04)] flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl overflow-hidden shrink-0 shadow-sm">
-            <img
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTfIJJ_89WDqvwNuXO6v6osXcwEtyYeD2RjrBWE3GCr4ZXkfMjwhW8Pbg-SVMWxtRhgEWPljAhOYb4sQZnpXT3ODb2Xvi1r0Wk82TcZYHnQ9YlnwKVyrioH2-yGwv0OeeuL7WzOPVpjQbf2xUFWrZasi9Cso0VZfUvZQmKglaJ1z17JzuZ1pyoLccxMGhaL58fJ2lv8ccOr7ex21hhJ2zXQOKlU2XEGx6z_BuFofKZuMJwj75r2ol1Dg"
-              alt="Creamy Spinach Pasta"
-              className="w-full h-full object-cover"
-            />
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#b72301]/10 to-[#ff5733]/10 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[#b72301] text-3xl">auto_awesome</span>
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="bg-[#aeeecb] text-[#316e52] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                100% Match
+                AI Powered
               </span>
-              <span className="text-xs text-[#5b403a]">15 min • 450 kcal</span>
+              <span className="text-xs text-[#5b403a]">
+                {pantryItems.length > 0 ? `${pantryItems.length} ingredients available` : 'No ingredients yet'}
+              </span>
             </div>
-            <h3 className="font-bold text-[#1b1c1a] text-base">Creamy Spinach Pasta</h3>
+            <h3 className="font-bold text-[#1b1c1a] text-base">
+              {pantryItems.length > 0 ? 'Generate AI Recipes' : 'Scan Your Kitchen'}
+            </h3>
             <p className="text-xs text-[#835400] font-medium mt-0.5 flex items-center gap-1">
-              <span className="material-symbols-outlined text-sm">auto_awesome</span>
-              <span>Uses 2 items expiring today</span>
+              <span className="material-symbols-outlined text-sm">
+                {pantryItems.length > 0 ? 'restaurant_menu' : 'photo_camera'}
+              </span>
+              <span>
+                {pantryItems.length > 0
+                  ? `Cook with what you have`
+                  : 'Point your camera at your fridge'}
+              </span>
             </p>
           </div>
         </div>
         <button
-          onClick={() => setActiveTab('recipes')}
+          onClick={() => setActiveTab(pantryItems.length > 0 ? 'recipes' : 'scanner')}
           className="w-full md:w-auto px-5 py-2.5 bg-[#b72301] text-white rounded-xl text-xs font-bold hover:bg-[#b72301]/90 transition-all shadow-sm cursor-pointer whitespace-nowrap"
         >
-          View Recipe
+          {pantryItems.length > 0 ? 'View Recipes' : 'Start Scanning'}
         </button>
       </section>
     </div>
