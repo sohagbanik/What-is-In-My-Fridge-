@@ -242,7 +242,55 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     };
   }, []);
 
-  // ── Capture a single frame from webcam and upload to /scan-image ──
+  // ── Helper: Generate synthetic fridge image blob if external fetch fails ──
+  const generateDemoFridgeBlob = (): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 640;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Fridge background
+        ctx.fillStyle = '#f0f4f8';
+        ctx.fillRect(0, 0, 640, 640);
+        // Shelves
+        ctx.fillStyle = '#cfd8dc';
+        ctx.fillRect(30, 220, 580, 12);
+        ctx.fillRect(30, 440, 580, 12);
+        // Red Apples (Produce)
+        ctx.fillStyle = '#e53935';
+        ctx.beginPath(); ctx.arc(120, 160, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(180, 165, 30, 0, Math.PI * 2); ctx.fill();
+        // Carrots (Produce)
+        ctx.fillStyle = '#ff9800';
+        ctx.beginPath(); ctx.moveTo(320, 120); ctx.lineTo(350, 190); ctx.lineTo(290, 190); ctx.closePath(); ctx.fill();
+        // Milk Jug (Dairy)
+        ctx.fillStyle = '#1e88e5';
+        ctx.fillRect(440, 110, 70, 100);
+        // Cheese Block (Dairy)
+        ctx.fillStyle = '#fdd835';
+        ctx.fillRect(100, 340, 90, 60);
+        // Broccoli (Produce)
+        ctx.fillStyle = '#43a047';
+        ctx.beginPath(); ctx.arc(280, 360, 40, 0, Math.PI * 2); ctx.fill();
+        // Eggs Carton (Protein)
+        ctx.fillStyle = '#d7ccc8';
+        ctx.fillRect(400, 360, 140, 50);
+        // Orange Juice (Beverage)
+        ctx.fillStyle = '#fb8c00';
+        ctx.fillRect(140, 500, 60, 110);
+        // Tomatoes (Produce)
+        ctx.fillStyle = '#e53935';
+        ctx.beginPath(); ctx.arc(320, 560, 35, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(380, 560, 30, 0, Math.PI * 2); ctx.fill();
+      }
+      canvas.toBlob((blob) => {
+        resolve(blob || new Blob());
+      }, 'image/jpeg', 0.85);
+    });
+  };
+
+  // ── Capture a single frame from webcam or demo image and upload to /scan-image ──
   const handleCapture = async () => {
     // If live items are already detected, accept them directly
     if (liveItems.length > 0) {
@@ -252,6 +300,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     }
 
     setIsAnalyzing(true);
+    let scannedSuccessfully = false;
     try {
       const formData = new FormData();
 
@@ -259,8 +308,8 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
         // Webcam active — capture a frame from the video element
         const video = videoRef.current;
         const canvas = canvasRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(video, 0, 0);
@@ -271,18 +320,20 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
             formData.append('file', blob, 'capture.jpg');
           }
         }
-      } else {
-        // No webcam — fetch the stock fridge background image and send it for real AI detection
+      }
+
+      // If no file blob yet (camera off or capture failed), use demo image
+      if (!formData.has('file')) {
         try {
           const imgUrl = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBwqyI9v0b09z_jZW-DMXdhkWlvrh84xsMpxS_5wRv2ZO41SrFPpwX5I3buOqPOjmLx-ius8pSHCGv8j0OQ2o_D7abQwtoBLqaHpKKGgS7Pp5s7drvJ-N0dvtSlzSdfaps6_0Zw5dcxlPWuNiRkoWikegGhUf_Zu0l_SWeIUX7oXJW8wZYMP7VjQZjBKkr_J00Vtkz6mRaT2xddHnBD4wu2nQJkzbYlgXxd-CHeXYQC87OtqbnbaWuBfg';
-          const imgResponse = await fetch(imgUrl);
+          const imgResponse = await fetch(imgUrl, { mode: 'cors' });
+          if (!imgResponse.ok) throw new Error('Demo fetch failed');
           const imgBlob = await imgResponse.blob();
           formData.append('file', imgBlob, 'fridge-demo.jpg');
         } catch {
-          // If fetch fails, prompt user to upload
-          console.warn('Could not fetch demo image, please upload a photo instead');
-          setIsAnalyzing(false);
-          return;
+          // Fallback to generated canvas demo fridge blob
+          const demoBlob = await generateDemoFridgeBlob();
+          formData.append('file', demoBlob, 'fridge-demo.jpg');
         }
       }
 
@@ -292,15 +343,21 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
         body: formData,
       });
       const data = await response.json();
-      if (data.success && data.items) {
+      if (data.success && data.items && data.items.length > 0) {
         const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
         onScanComplete(mapped);
+        scannedSuccessfully = true;
+      } else {
+        alert(data.message || 'No food items detected in the image. Try taking another picture.');
       }
     } catch (e) {
       console.error('Scan error:', e);
+      alert('Could not connect to backend server. Make sure the FastAPI server is running on port 8000.');
     } finally {
       setIsAnalyzing(false);
-      setActiveTab('scanned-review');
+      if (scannedSuccessfully) {
+        setActiveTab('scanned-review');
+      }
     }
   };
 
@@ -310,6 +367,7 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     if (!file) return;
 
     setIsAnalyzing(true);
+    let scannedSuccessfully = false;
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -319,15 +377,21 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
         body: formData,
       });
       const data = await response.json();
-      if (data.success && data.items) {
+      if (data.success && data.items && data.items.length > 0) {
         const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
         onScanComplete(mapped);
+        scannedSuccessfully = true;
+      } else {
+        alert(data.message || 'No food items detected in uploaded photo.');
       }
     } catch (err) {
       console.error('Upload scan error:', err);
+      alert('Could not connect to scan service. Please ensure the backend server is running.');
     } finally {
       setIsAnalyzing(false);
-      setActiveTab('scanned-review');
+      if (scannedSuccessfully) {
+        setActiveTab('scanned-review');
+      }
     }
   };
 

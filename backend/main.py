@@ -34,6 +34,7 @@ import time                     # Throttle mechanism for WebSocket frame rate
 import json                     # Parse JSON responses from the LLM
 import asyncio                  # Async support for WebSocket handling
 import traceback                # Detailed error logging
+import re                       # Regular expressions for string parsing
 
 import cv2                      # OpenCV — image processing (resize, contrast, encode)
 import numpy as np              # NumPy — required by OpenCV for image arrays
@@ -57,9 +58,10 @@ from groq import Groq                                # Groq SDK for LLM inferenc
 # CONFIGURATION & INITIALIZATION
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Load environment variables from .env file in the same directory.
-# This keeps secrets (like API keys) out of source code.
-load_dotenv()
+# Load environment variables from .env file in the backend directory.
+dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(dotenv_path=dotenv_path)
+load_dotenv()  # Fallback to cwd
 
 # Retrieve the Groq API key from environment variables.
 # You MUST set this in your .env file:  GROQ_API_KEY=gsk_your_key_here
@@ -270,98 +272,80 @@ def analyze_image_with_groq(base64_image: str) -> List[DetectedItem]:
     if not groq_client:
         raise HTTPException(
             status_code=500,
-            detail="Groq API key not configured. Add GROQ_API_KEY to your .env file."
+            detail="Groq API key not configured. Add GROQ_API_KEY to your backend/.env file."
         )
 
-    # ── Construct the vision prompt ──
-    # We ask the model to return structured JSON so we can parse it reliably.
-    # The prompt is specific about the exact JSON schema we expect.
-    vision_prompt = """You are a food detection AI for a smart kitchen app called "What's In My Fridge?".
+    vision_prompt = """You are a smart kitchen food detection AI. Identify ALL visible fruits, vegetables, ingredients, and food items in this image.
+Return a JSON object with key "items".
+For each item provide:
+- name: specific food name (e.g., "Bananas", "Apples", "Roma Tomatoes", "Whole Milk")
+- quantity: estimated count or amount (e.g., "4", "1 bunch", "1 bottle")
+- category: one of Produce, Dairy, Protein, Pantry, Beverage, Condiment
+- confidence: high, medium, or low
+- freshness: fresh, okay, expiring soon, or expired
 
-Analyze this image of a fridge, pantry, or kitchen counter. Identify ALL visible food items.
-
-For each item, provide:
-- name: The specific name (e.g. "Roma Tomatoes" not just "tomatoes")
-- quantity: Estimated count or amount (e.g. "3 pieces", "1 bag", "half full")
-- category: One of: Produce, Dairy, Protein, Pantry, Beverage, Condiment
-- confidence: Your confidence level: high, medium, or low
-- freshness: Estimated state: fresh, okay, expiring soon, or expired
-
-IMPORTANT: Respond with ONLY a valid JSON array. No markdown, no explanation, no code fences.
-Example format:
-[
-  {"name": "Whole Milk", "quantity": "1 gallon, half full", "category": "Dairy", "confidence": "high", "freshness": "okay"},
-  {"name": "Roma Tomatoes", "quantity": "4 pieces", "category": "Produce", "confidence": "high", "freshness": "fresh"}
-]
-
-If no food items are visible, return an empty array: []"""
-
-    # ── Call the Groq Vision API ──
-    # We use the chat completions endpoint with an image_url content part.
-    # The image is passed as a base64 data URI (no external URL needed).
-    response = groq_client.chat.completions.create(
-        model="qwen/qwen3.6-27b",   # Groq's current vision-capable model (multimodal)
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": vision_prompt,
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
-                        },
-                    },
-                ],
-            }
-        ],
-        temperature=0.3,     # Low temperature = more deterministic/accurate results
-        max_tokens=8192,     # Generous limit — thinking models use tokens for reasoning
-    )
-
-    # ── Parse the JSON response ──
-    raw_text = response.choices[0].message.content.strip()
-
-    # Thinking models (e.g. qwen3.6) wrap output in <think>...</think> blocks.
-    # Strip these before attempting JSON parse.
-    import re
-    raw_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
-
-    # Sometimes the model wraps JSON in markdown code fences. Strip them.
-    if raw_text.startswith("```"):
-        # Remove ```json ... ``` or ``` ... ```
-        raw_text = raw_text.split("\n", 1)[-1]  # Remove first line (```json)
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]            # Remove trailing ```
-        raw_text = raw_text.strip()
+JSON format example:
+{"items": [{"name": "Tomatoes", "quantity": "4", "category": "Produce", "confidence": "high", "freshness": "fresh"}]}"""
 
     try:
-        items_data = json.loads(raw_text)
-    except json.JSONDecodeError:
-        print(f"   [WARN] Failed to parse LLM response as JSON:\n{raw_text[:500]}")
-        # Attempt to extract JSON array from the response text
-        start = raw_text.find("[")
-        end = raw_text.rfind("]") + 1
-        if start != -1 and end > start:
-            try:
-                items_data = json.loads(raw_text[start:end])
-            except json.JSONDecodeError:
-                return []
-        else:
-            return []
+        response = groq_client.chat.completions.create(
+            model="qwen/qwen3.6-27b",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": vision_prompt,
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            max_tokens=2048,
+        )
+    except Exception as api_err:
+        print(f"   [ERROR] Groq API call failed: {api_err}")
+        return []
+
+    # ── Parse response ──
+    raw_text = response.choices[0].message.content.strip()
+    items_data = []
+
+    try:
+        parsed = json.loads(raw_text)
+        if isinstance(parsed, dict) and "items" in parsed:
+            items_data = parsed["items"]
+        elif isinstance(parsed, list):
+            items_data = parsed
+    except Exception as parse_err:
+        print(f"   [WARN] JSON parse error: {parse_err}, raw: {raw_text[:300]}")
+        return []
 
     # Convert raw dicts to validated Pydantic DetectedItem objects.
     detected_items = []
-    for item in items_data:
-        try:
-            detected_items.append(DetectedItem(**item))
-        except Exception:
-            # Skip items that don't match our schema
-            print(f"   [WARN] Skipped malformed item: {item}")
-            continue
+    if isinstance(items_data, list):
+        for item in items_data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                detected_items.append(DetectedItem(
+                    name=str(item.get("name", "Unknown Item")),
+                    quantity=str(item.get("quantity", "1")),
+                    category=str(item.get("category", "Produce")),
+                    confidence=str(item.get("confidence", "high")),
+                    freshness=str(item.get("freshness", "fresh"))
+                ))
+            except Exception as item_err:
+                print(f"   [WARN] Skipped malformed item ({item_err}): {item}")
+                continue
 
     return detected_items
 
