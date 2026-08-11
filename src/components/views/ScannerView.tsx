@@ -1,63 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ActiveTab, PantryItem } from '../../types';
 import { ENDPOINTS } from '../../apiConfig';
+import { mapDetectedToPantryItem } from '../../utils/scanHelper';
 
 interface ScannerViewProps {
   setActiveTab: (tab: ActiveTab) => void;
   onScanComplete: (newItems: PantryItem[]) => void;
-}
-
-// ── Helper: Map backend DetectedItem → frontend PantryItem ──
-// The FastAPI backend returns items with { name, quantity, category, confidence, freshness }
-// The frontend expects PantryItem with { id, daysLeft, freshnessPercent, status, ... }
-function mapDetectedToPantryItem(item: any, index: number): PantryItem {
-  // Map freshness string → numeric values
-  const freshnessMap: Record<string, { daysLeft: number; freshnessPercent: number; status: PantryItem['status'] }> = {
-    'fresh':         { daysLeft: 7,  freshnessPercent: 85, status: 'fresh' },
-    'okay':          { daysLeft: 4,  freshnessPercent: 55, status: 'fresh' },
-    'expiring soon': { daysLeft: 2,  freshnessPercent: 20, status: 'warning' },
-    'expired':       { daysLeft: 0,  freshnessPercent: 5,  status: 'critical' },
-  };
-
-  const freshness = freshnessMap[(item.freshness || 'okay').toLowerCase()] || freshnessMap['okay'];
-
-  // Map category string
-  const categoryMap: Record<string, PantryItem['category']> = {
-    'produce': 'Produce',
-    'dairy': 'Dairy',
-    'protein': 'Protein',
-    'pantry': 'Pantry',
-    'beverage': 'Other',
-    'condiment': 'Pantry',
-  };
-
-  const category = categoryMap[(item.category || 'other').toLowerCase()] || 'Other';
-
-  // Map confidence string → percentage
-  const confidenceMap: Record<string, number> = { 'high': 95, 'medium': 80, 'low': 60 };
-  const confidence = confidenceMap[(item.confidence || 'medium').toLowerCase()] || 80;
-
-  // Build the expiry text from daysLeft
-  const expiryText = freshness.daysLeft === 0
-    ? 'Expired'
-    : freshness.daysLeft <= 2
-      ? `Use within ${freshness.daysLeft} day${freshness.daysLeft > 1 ? 's' : ''}`
-      : `Fresh (${freshness.daysLeft}+ days)`;
-
-  return {
-    id: `scan-${Date.now()}-${index}`,
-    name: item.name || 'Unknown Item',
-    category,
-    quantity: parseInt(item.quantity) || 1,
-    unit: item.quantity?.replace(/[0-9]/g, '').trim() || undefined,
-    location: 'Scanned',
-    daysLeft: freshness.daysLeft,
-    expiryText,
-    freshnessPercent: freshness.freshnessPercent,
-    status: freshness.status,
-    confidence,
-    isScanned: true,
-  };
 }
 
 export const ScannerView: React.FC<ScannerViewProps> = ({

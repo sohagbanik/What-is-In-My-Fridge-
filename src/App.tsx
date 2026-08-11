@@ -70,6 +70,7 @@ export default function App() {
             <HomeView
               pantryItems={pantryItems}
               setActiveTab={setActiveTab}
+              onScanComplete={handleScanComplete}
               onSelectCategory={cat => setSelectedCategoryFilter(cat)}
             />
           )}

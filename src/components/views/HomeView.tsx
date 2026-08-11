@@ -1,17 +1,24 @@
 import React from 'react';
 import { ActiveTab, PantryItem } from '../../types';
+import { ENDPOINTS } from '../../apiConfig';
+import { mapDetectedToPantryItem } from '../../utils/scanHelper';
 
 interface HomeViewProps {
   pantryItems: PantryItem[];
   setActiveTab: (tab: ActiveTab) => void;
+  onScanComplete?: (newItems: PantryItem[]) => void;
   onSelectCategory?: (category: string) => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
   pantryItems,
   setActiveTab,
+  onScanComplete,
   onSelectCategory,
 }) => {
+  const [isUploading, setIsUploading] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   // Filter expiring items
   const expiringItems = pantryItems.filter(
     item => item.daysLeft <= 2 || item.status === 'critical' || item.status === 'warning'
@@ -22,14 +29,59 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return pantryItems.filter(item => item.category === categoryName).length;
   };
 
+  // Handle direct image file upload from Home page
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(ENDPOINTS.SCAN_IMAGE, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (data.success && data.items && data.items.length > 0) {
+        const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
+        if (onScanComplete) {
+          onScanComplete(mapped);
+        } else {
+          setActiveTab('scanned-review');
+        }
+      } else {
+        alert(data.message || 'No food items detected in uploaded photo. Please try a clearer fridge image.');
+      }
+    } catch (err) {
+      console.error('Upload scan error:', err);
+      alert('Could not connect to scan service. Make sure the backend server is running on port 8000.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6 w-full max-w-3xl mx-auto pb-8">
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept="image/*"
+        className="hidden"
+      />
+
       {/* Header Section */}
       <section className="pt-2 flex justify-between items-center">
         <div>
           <h1 className="text-2xl md:text-3xl font-headline font-bold text-[#1b1c1a] tracking-tight">
             What's in your kitchen today, Alex?
           </h1>
+          <p className="text-sm text-[#5b403a] mt-1">
+            Detect ingredients using AI image upload or live camera scan
+          </p>
         </div>
         <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 shadow-sm border-2 border-[#e9e8e4] md:hidden">
           <img
@@ -40,14 +92,57 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </section>
 
-      {/* Main Action Area: Scan CTA */}
-      <section>
+      {/* Main Action Area: 2 Separate Buttons */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Button 1: Upload Inside Fridge Image */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="bg-gradient-to-br from-[#b72301] to-[#801800] text-white rounded-2xl p-5 flex flex-col items-start justify-between gap-4 shadow-lg hover:shadow-xl active:scale-[0.98] transition-all cursor-pointer border border-[#b72301]/30 group text-left relative overflow-hidden"
+        >
+          <div className="flex items-center justify-between w-full">
+            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
+              <span className="material-symbols-outlined text-2xl">
+                {isUploading ? 'progress_activity' : 'cloud_upload'}
+              </span>
+            </div>
+            <span className="bg-white/20 text-xs px-2.5 py-1 rounded-full font-bold backdrop-blur-md">
+              Instant AI
+            </span>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-bold font-headline leading-tight group-hover:underline">
+              {isUploading ? 'Analyzing AI...' : 'Upload Fridge Photo'}
+            </h3>
+            <p className="text-xs text-white/80 mt-1">
+              Upload an inside fridge photo to detect all food & produce
+            </p>
+          </div>
+        </button>
+
+        {/* Button 2: Live Camera Scan */}
         <button
           onClick={() => setActiveTab('scanner')}
-          className="w-full bg-[#b72301] text-white rounded-2xl py-4 px-6 flex items-center justify-center gap-3 shadow-[0_4px_20px_0_rgba(183,35,1,0.2)] hover:bg-[#b72301]/90 active:scale-[0.98] transition-all duration-150 cursor-pointer"
+          className="bg-white dark:bg-[#2f312e] text-[#1b1c1a] dark:text-white rounded-2xl p-5 flex flex-col items-start justify-between gap-4 shadow-md hover:shadow-lg active:scale-[0.98] transition-all cursor-pointer border border-[#e4beb6]/40 group text-left"
         >
-          <span className="material-symbols-outlined text-3xl fill">photo_camera</span>
-          <span className="text-lg font-bold font-headline">Scan Fridge & Pantry</span>
+          <div className="flex items-center justify-between w-full">
+            <div className="w-12 h-12 rounded-xl bg-[#2c694e]/10 text-[#2c694e] flex items-center justify-center">
+              <span className="material-symbols-outlined text-2xl">videocam</span>
+            </div>
+            <span className="bg-[#2c694e]/15 text-[#2c694e] text-xs px-2.5 py-1 rounded-full font-bold">
+              Real-time
+            </span>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-bold font-headline leading-tight group-hover:underline text-[#1b1c1a] dark:text-white">
+              Live Camera Scan
+            </h3>
+            <p className="text-xs text-[#5b403a] dark:text-[#e3e2df] mt-1">
+              Use live camera view for continuous food item detection
+            </p>
+          </div>
         </button>
       </section>
 
