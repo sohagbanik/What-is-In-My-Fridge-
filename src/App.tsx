@@ -3,6 +3,7 @@ import { ActiveTab, PantryItem, Recipe } from './types';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { DesktopSidebar } from './components/DesktopSidebar';
+import { NavigationDrawer } from './components/NavigationDrawer';
 import { HomeView } from './components/views/HomeView';
 import { ScannerView } from './components/views/ScannerView';
 import { ScannedReviewView } from './components/views/ScannedReviewView';
@@ -61,16 +62,24 @@ export default function App() {
         expiringItems={expiringItems}
       />
 
+      {/* Slide-out Navigation Drawer Menu (Home, Pantry, Recipes, Saved) */}
+      <NavigationDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        pantryCount={pantryItems.length}
+        recipesCount={recipes.length}
+      />
+
       {/* Main Container Layout */}
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 md:py-6 flex flex-col md:flex-row items-start relative">
-        {/* Responsive Navigation Sidebar / Drawer */}
+        {/* Desktop Navigation Sidebar */}
         <DesktopSidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pantryCount={pantryItems.length}
           recipesCount={recipes.length}
-          isMobileMenuOpen={isMobileMenuOpen}
-          onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
         />
 
         {/* View Switcher Content Area */}
