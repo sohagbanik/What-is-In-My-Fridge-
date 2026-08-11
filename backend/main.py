@@ -285,49 +285,93 @@ For each item provide:
 - freshness: fresh, okay, expiring soon, or expired
 
 JSON format example:
-{"items": [{"name": "Tomatoes", "quantity": "4", "category": "Produce", "confidence": "high", "freshness": "fresh"}]}"""
+{"items": [{"name": "Tomatoes", "quantity": "4", "category": "Produce", "confidence": "high", "freshness": "fresh"}]}
+If no food items are visible, return: {"items": []}"""
 
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": vision_prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+            ],
+        }
+    ]
+
+    raw_text = ""
+
+    # Attempt 1: Use response_format json_object (fastest, cleanest)
     try:
         response = groq_client.chat.completions.create(
             model="qwen/qwen3.6-27b",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": vision_prompt,
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
-            ],
+            messages=messages,
             response_format={"type": "json_object"},
             temperature=0.1,
             max_tokens=2048,
         )
+        raw_text = response.choices[0].message.content.strip()
+        print(f"   [AI] JSON mode response received ({len(raw_text)} chars)")
     except Exception as api_err:
-        print(f"   [ERROR] Groq API call failed: {api_err}")
-        return []
+        err_str = str(api_err)
+        print(f"   [WARN] JSON mode failed: {err_str[:200]}")
+
+        # Attempt 2: Retry WITHOUT json_object constraint (handles low-quality images)
+        if "json_validate_failed" in err_str or "400" in err_str:
+            print("   [RETRY] Retrying without json_object constraint...")
+            try:
+                # Add explicit no-thinking instruction for the retry
+                retry_messages = [
+                    {"role": "system", "content": "Do NOT use <think> tags. Output the JSON directly with no preamble."},
+                    *messages,
+                ]
+                response = groq_client.chat.completions.create(
+                    model="qwen/qwen3.6-27b",
+                    messages=retry_messages,
+                    temperature=0.1,
+                    max_tokens=4096,
+                )
+                raw_text = response.choices[0].message.content.strip()
+                print(f"   [AI] Fallback response received ({len(raw_text)} chars)")
+            except Exception as retry_err:
+                print(f"   [ERROR] Retry also failed: {retry_err}")
+                return []
+        else:
+            return []
 
     # ── Parse response ──
-    raw_text = response.choices[0].message.content.strip()
+    # Strip <think>...</think> blocks from thinking models
+    import re
+    raw_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
+
+    # Strip markdown code fences
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("\n", 1)[-1]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+
     items_data = []
 
+    # Try parsing as JSON directly
     try:
         parsed = json.loads(raw_text)
         if isinstance(parsed, dict) and "items" in parsed:
             items_data = parsed["items"]
         elif isinstance(parsed, list):
             items_data = parsed
-    except Exception as parse_err:
-        print(f"   [WARN] JSON parse error: {parse_err}, raw: {raw_text[:300]}")
-        return []
+    except json.JSONDecodeError:
+        # Try extracting JSON array from within the text
+        start = raw_text.find("[")
+        end = raw_text.rfind("]") + 1
+        if start != -1 and end > start:
+            try:
+                items_data = json.loads(raw_text[start:end])
+            except json.JSONDecodeError:
+                print(f"   [WARN] Could not parse JSON from response: {raw_text[:300]}")
+                return []
+        else:
+            print(f"   [WARN] No JSON array found in response: {raw_text[:300]}")
+            return []
 
     # Convert raw dicts to validated Pydantic DetectedItem objects.
     detected_items = []
