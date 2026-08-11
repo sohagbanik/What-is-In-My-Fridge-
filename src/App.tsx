@@ -13,11 +13,12 @@ import { InteractiveCookingView } from './components/views/InteractiveCookingVie
 import { PantryView } from './components/views/PantryView';
 import { SavedView } from './components/views/SavedView';
 
+import { initialPantryItems, initialRecipes } from './data/mockData';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  // Start with EMPTY state — all data comes from real AI scanning
-  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>(initialPantryItems);
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null);
   const [isCookingModeOpen, setIsCookingModeOpen] = useState(false);

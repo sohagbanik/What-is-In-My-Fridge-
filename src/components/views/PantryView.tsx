@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ActiveTab, PantryItem } from '../../types';
 
 interface PantryViewProps {
@@ -17,24 +17,43 @@ export const PantryView: React.FC<PantryViewProps> = ({
   const [activeCategory, setActiveCategory] = useState<string>(
     selectedCategoryFilter || 'All'
   );
+  const [activeStatus, setActiveStatus] = useState<'All' | 'Expiring Soon' | 'Critical' | 'Fresh'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // Sync selected category from Home page clicks
+  useEffect(() => {
+    if (selectedCategoryFilter) {
+      setActiveCategory(selectedCategoryFilter);
+    }
+  }, [selectedCategoryFilter]);
+
   // Form state
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<'Produce' | 'Dairy' | 'Pantry' | 'Protein'>('Produce');
+  const [category, setCategory] = useState<'Produce' | 'Dairy' | 'Pantry' | 'Protein' | 'Other'>('Produce');
   const [quantity, setQuantity] = useState(1);
   const [daysLeft, setDaysLeft] = useState(3);
 
-  const categories = ['All', 'Produce', 'Dairy', 'Pantry', 'Protein'];
+  const categories = ['All', 'Produce', 'Dairy', 'Pantry', 'Protein', 'Other'];
+  const statuses: ('All' | 'Expiring Soon' | 'Critical' | 'Fresh')[] = ['All', 'Expiring Soon', 'Critical', 'Fresh'];
 
   const filteredItems = pantryItems.filter(item => {
     const matchesCategory =
-      activeCategory === 'All' || item.category === activeCategory;
-    const matchesSearch = item.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+      activeCategory === 'All' || item.category.toLowerCase() === activeCategory.toLowerCase();
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.location || '').toLowerCase().includes(searchQuery.toLowerCase());
+
+    let matchesStatus = true;
+    if (activeStatus === 'Expiring Soon') {
+      matchesStatus = item.daysLeft <= 2 || item.status === 'warning' || item.status === 'critical';
+    } else if (activeStatus === 'Critical') {
+      matchesStatus = item.daysLeft <= 1 || item.status === 'critical';
+    } else if (activeStatus === 'Fresh') {
+      matchesStatus = item.daysLeft > 2 && item.status !== 'critical' && item.status !== 'warning';
+    }
+
+    return matchesCategory && matchesSearch && matchesStatus;
   });
 
   const handleQuantityChange = (id: string, delta: number) => {
@@ -134,6 +153,30 @@ export const PantryView: React.FC<PantryViewProps> = ({
               }`}
             >
               {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Freshness Status Pills */}
+        <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+          <span className="text-xs font-bold text-[#5b403a] self-center mr-1">Status:</span>
+          {statuses.map(st => (
+            <button
+              key={st}
+              onClick={() => setActiveStatus(st)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                activeStatus === st
+                  ? st === 'Critical'
+                    ? 'bg-[#ba1a1a] text-white'
+                    : st === 'Expiring Soon'
+                    ? 'bg-[#835400] text-white'
+                    : st === 'Fresh'
+                    ? 'bg-[#2c694e] text-white'
+                    : 'bg-[#5b403a] text-white'
+                  : 'bg-white border border-[#e4beb6]/50 text-[#5b403a] hover:bg-[#f4f4f0]'
+              }`}
+            >
+              {st}
             </button>
           ))}
         </div>

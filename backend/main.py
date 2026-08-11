@@ -133,7 +133,11 @@ class RecipeRequest(BaseModel):
         ...,
         min_length=1,
         description="List of ingredient names available in the pantry",
-        json_schema_extra={"example": ["chicken breast", "garlic", "spinach", "lemon", "rice"]}
+        json_schema_extra={"example": ["paneer", "tomatoes", "garlic", "spinach", "rice"]}
+    )
+    cuisine_preference: Optional[str] = Field(
+        "Indian",
+        description="Preferred cuisine focus, e.g. 'Indian' or 'Any'"
     )
 
 
@@ -153,10 +157,11 @@ class GeneratedRecipe(BaseModel):
     servings: int = Field(..., description="Number of servings")
     difficulty: str = Field(..., description="Easy, Medium, or Hard")
     calories_estimate: Optional[int] = Field(None, description="Estimated calories per serving")
+    uses_expiring_items_count: Optional[int] = Field(0, description="Count of expiring pantry items used")
     ingredients_used: List[str] = Field(..., description="Ingredients from the user's list that are used")
     staples_needed: List[str] = Field(default_factory=list, description="Common staples assumed available (salt, oil, etc.)")
     steps: List[RecipeStep] = Field(..., description="Ordered cooking instructions")
-    tags: List[str] = Field(default_factory=list, description="Tags like 'Vegetarian', 'Quick', etc.")
+    tags: List[str] = Field(default_factory=list, description="Tags like 'Indian', 'Vegetarian', 'Quick', etc.")
 
 
 class RecipeResponse(BaseModel):
@@ -615,42 +620,45 @@ async def generate_recipe(request: RecipeRequest):
     # The system prompt enforces strict constraints.
     # The user message contains the actual ingredient list.
 
-    system_prompt = """You are a creative professional chef AI for the app "What's In My Fridge?".
-Your mission: reduce food waste by creating delicious recipes from ONLY the ingredients the user has.
+    system_prompt = """You are an expert master chef AI specializing in authentic Indian Cuisine & Global Fusion for the app "What's In My Fridge?".
+Your mission: create mouthwatering, authentic recipes prioritizing **Indian Cuisine** options while using ONLY the ingredients the user has, reducing food waste.
 
 STRICT RULES:
 1. You MUST use ONLY the ingredients provided by the user.
-2. You MAY assume these common household staples are available: salt, black pepper, olive oil, vegetable oil, butter, water, sugar, flour, vinegar, soy sauce.
-3. You MUST NOT add any other ingredients beyond what's listed + staples.
-4. Generate exactly 2 recipe options — one should be simpler/quicker than the other.
-5. Prioritize ingredients that are perishable (produce, dairy, protein) to reduce waste.
+2. You MAY assume these standard kitchen staples & Indian spices are available: salt, black pepper, turmeric powder, red chili powder, cumin seeds, mustard seeds, coriander powder, garam masala, ginger, garlic, vegetable oil, ghee, butter, water, sugar, flour.
+3. **MUST GENERATE INDIAN CUISINE**: At least ONE of the generated recipes MUST be an authentic Indian food dish (e.g. Paneer Tikka Masala, Aloo Gobi, Dal Tadka, Chana Masala, Vegetable Biryani, Palak Paneer, Egg Curry, Kadai Veg, Jeera Rice, Masala Omelette, Pav Bhaji, Raita, Pulao).
+4. Generate exactly 2 recipe options — one quick & easy everyday dish, and one elevated rich traditional dish.
+5. Include "Indian" tag in the `tags` array for Indian dishes, and "Vegetarian" if no meat/fish is used.
+6. Calculate `uses_expiring_items_count` for how many perishable/expiring ingredients are incorporated.
 
-OUTPUT FORMAT: Respond with ONLY a valid JSON array of exactly 2 recipe objects. No markdown, no explanation, no code fences.
+OUTPUT FORMAT: Respond with ONLY a valid JSON array of exactly 2 recipe objects. No markdown preamble, no explanation, no code fences.
 
 Each recipe object must have these exact keys:
 {
-  "title": "Recipe Name",
-  "description": "A brief, appetizing 1-2 sentence description",
-  "prep_time": "X min",
-  "cook_time": "Y min",
+  "title": "Recipe Name (e.g. Authentic Paneer Butter Masala)",
+  "description": "A mouthwatering 1-2 sentence description",
+  "prep_time": "10 min",
+  "cook_time": "15 min",
   "servings": 2,
-  "difficulty": "Easy|Medium|Hard",
-  "calories_estimate": 350,
+  "difficulty": "Easy",
+  "calories_estimate": 380,
+  "uses_expiring_items_count": 2,
   "ingredients_used": ["ingredient1", "ingredient2"],
-  "staples_needed": ["salt", "olive oil"],
+  "staples_needed": ["turmeric", "cumin", "oil"],
   "steps": [
-    {"step_number": 1, "instruction": "Do this first...", "duration_minutes": 5},
-    {"step_number": 2, "instruction": "Then do this...", "duration_minutes": 10}
+    {"step_number": 1, "instruction": "Heat oil in a pan...", "duration_minutes": 3},
+    {"step_number": 2, "instruction": "Add spices and saute...", "duration_minutes": 5}
   ],
-  "tags": ["Quick", "Healthy"]
+  "tags": ["Indian", "Vegetarian", "Quick"]
 }"""
 
-    user_message = f"""Here are the ingredients I have available:
+    user_message = f"""Here are my current pantry ingredients:
 
 {json.dumps(request.ingredients, indent=2)}
 
-Please generate 2 creative recipes using ONLY these ingredients (plus standard staples).
-Make one recipe quick & easy, and the other more elevated/impressive."""
+Cuisine preference: {request.cuisine_preference or 'Indian'}
+
+Generate 2 delicious recipe options (prioritizing authentic Indian food items)."""
 
     try:
         # ── Call the Groq Text API ──
