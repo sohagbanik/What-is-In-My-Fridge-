@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { ActiveTab, PantryItem } from '../../types';
 import { ENDPOINTS } from '../../apiConfig';
 import { mapDetectedToPantryItem } from '../../utils/scanHelper';
+import { analyzeImageClientSide } from '../../utils/fallbackVision';
+import { ScanLoadingOverlay } from '../ScanLoadingOverlay';
 
 interface HomeViewProps {
   pantryItems: PantryItem[];
@@ -16,8 +18,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onScanComplete,
   onSelectCategory,
 }) => {
-  const [isUploading, setIsUploading] = React.useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter expiring items
   const expiringItems = pantryItems.filter(
@@ -29,41 +32,85 @@ export const HomeView: React.FC<HomeViewProps> = ({
     return pantryItems.filter(item => item.category === categoryName).length;
   };
 
-  // Handle direct image file upload from Home page
+  // Handle direct image file upload from Home page with full loading & robust fallback
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Show preview and loading overlay
+    const localUrl = URL.createObjectURL(file);
+    setPreviewUrl(localUrl);
     setIsUploading(true);
+
+    let mappedItems: PantryItem[] = [];
+
     try {
+      // 1. Try FastAPI backend API with a 12-second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
       const formData = new FormData();
       formData.append('file', file);
 
       const response = await fetch(ENDPOINTS.SCAN_IMAGE, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
-      const data = await response.json();
-      if (data.success && data.items && data.items.length > 0) {
-        const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.items && data.items.length > 0) {
+          mappedItems = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
+        }
+      }
+    } catch (err) {
+      console.warn('Backend scan unreachable, using client-side AI fallback:', err);
+    }
+
+    // 2. If backend response returned nothing or failed, use client-side canvas vision analyzer
+    if (mappedItems.length === 0) {
+      try {
+        mappedItems = await analyzeImageClientSide(file);
+      } catch (fallbackErr) {
+        console.error('Fallback vision error:', fallbackErr);
+      }
+    }
+
+    // Small timeout to allow UI transition
+    setTimeout(() => {
+      setIsUploading(false);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+
+      if (mappedItems.length > 0) {
         if (onScanComplete) {
-          onScanComplete(mapped);
+          onScanComplete(mappedItems);
         } else {
           setActiveTab('scanned-review');
         }
       } else {
-        alert(data.message || 'No food items detected in uploaded photo. Please try a clearer fridge image.');
+        alert('Could not detect food items in the uploaded photo. Please try a clearer fridge image.');
       }
-    } catch (err) {
-      console.error('Upload scan error:', err);
-      alert('Could not connect to scan service. Make sure the backend server is running on port 8000.');
-    } finally {
-      setIsUploading(false);
-    }
+    }, 800);
   };
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-3xl mx-auto pb-8">
+      {/* Full-Screen Loading Overlay when Uploading */}
+      {isUploading && (
+        <ScanLoadingOverlay
+          imagePreviewUrl={previewUrl}
+          onCancel={() => {
+            setIsUploading(false);
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(null);
+          }}
+        />
+      )}
+
       {/* Hidden file input */}
       <input
         type="file"
@@ -103,7 +150,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="flex items-center justify-between w-full">
             <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
               <span className="material-symbols-outlined text-2xl">
-                {isUploading ? 'progress_activity' : 'cloud_upload'}
+                {isUploading ? 'sync' : 'cloud_upload'}
               </span>
             </div>
             <span className="bg-white/20 text-xs px-2.5 py-1 rounded-full font-bold backdrop-blur-md">
@@ -146,7 +193,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </button>
       </section>
 
-      {/* Use First Banner (Expiry Alerts) — dynamic from pantryItems */}
+      {/* Use First Banner (Expiry Alerts) */}
       {expiringItems.length > 0 ? (
         <section className="mt-2">
           <div className="flex items-center justify-between mb-3">
@@ -202,7 +249,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </section>
       )}
 
-      {/* Inventory Summary — dynamic counts */}
+      {/* Inventory Summary */}
       <section className="mt-2">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-headline font-bold text-[#1b1c1a]">Inventory</h2>
@@ -253,83 +300,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </p>
             </div>
           </div>
-
-          {/* Pantry */}
-          <div
-            onClick={() => {
-              if (onSelectCategory) onSelectCategory('Pantry');
-              setActiveTab('pantry');
-            }}
-            className="bg-[#f4f4f0] rounded-[24px] p-4 flex flex-col gap-2 hover:bg-[#e9e8e4] cursor-pointer transition-colors shadow-sm"
-          >
-            <div className="w-10 h-10 rounded-full bg-[#e4beb6] flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#5b403a]">kitchen</span>
-            </div>
-            <div className="mt-2">
-              <h3 className="text-base font-bold text-[#1b1c1a]">Pantry</h3>
-              <p className="text-xs text-[#5b403a] mt-0.5">
-                {getCategoryCount('Pantry')} Items
-              </p>
-            </div>
-          </div>
-
-          {/* Protein */}
-          <div
-            onClick={() => {
-              if (onSelectCategory) onSelectCategory('Protein');
-              setActiveTab('pantry');
-            }}
-            className="bg-[#f4f4f0] rounded-[24px] p-4 flex flex-col gap-2 hover:bg-[#e9e8e4] cursor-pointer transition-colors shadow-sm"
-          >
-            <div className="w-10 h-10 rounded-full bg-[#ffdad6] flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#93000a]">set_meal</span>
-            </div>
-            <div className="mt-2">
-              <h3 className="text-base font-bold text-[#1b1c1a]">Protein</h3>
-              <p className="text-xs text-[#5b403a] mt-0.5">
-                {getCategoryCount('Protein')} Items
-              </p>
-            </div>
-          </div>
         </div>
-      </section>
-
-      {/* Quick Action — Scan or Cook */}
-      <section className="mt-2 p-5 rounded-3xl bg-white border border-[#e4beb6]/30 shadow-[0_4px_20px_0_rgba(183,35,1,0.04)] flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#b72301]/10 to-[#ff5733]/10 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[#b72301] text-3xl">auto_awesome</span>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="bg-[#aeeecb] text-[#316e52] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                AI Powered
-              </span>
-              <span className="text-xs text-[#5b403a]">
-                {pantryItems.length > 0 ? `${pantryItems.length} ingredients available` : 'No ingredients yet'}
-              </span>
-            </div>
-            <h3 className="font-bold text-[#1b1c1a] text-base">
-              {pantryItems.length > 0 ? 'Generate AI Recipes' : 'Scan Your Kitchen'}
-            </h3>
-            <p className="text-xs text-[#835400] font-medium mt-0.5 flex items-center gap-1">
-              <span className="material-symbols-outlined text-sm">
-                {pantryItems.length > 0 ? 'restaurant_menu' : 'photo_camera'}
-              </span>
-              <span>
-                {pantryItems.length > 0
-                  ? `Cook with what you have`
-                  : 'Point your camera at your fridge'}
-              </span>
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => setActiveTab(pantryItems.length > 0 ? 'recipes' : 'scanner')}
-          className="w-full md:w-auto px-5 py-2.5 bg-[#b72301] text-white rounded-xl text-xs font-bold hover:bg-[#b72301]/90 transition-all shadow-sm cursor-pointer whitespace-nowrap"
-        >
-          {pantryItems.length > 0 ? 'View Recipes' : 'Start Scanning'}
-        </button>
       </section>
     </div>
   );

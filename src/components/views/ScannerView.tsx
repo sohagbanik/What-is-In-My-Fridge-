@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ActiveTab, PantryItem } from '../../types';
 import { ENDPOINTS } from '../../apiConfig';
 import { mapDetectedToPantryItem } from '../../utils/scanHelper';
+import { analyzeImageClientSide } from '../../utils/fallbackVision';
+import { ScanLoadingOverlay } from '../ScanLoadingOverlay';
 
 interface ScannerViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -309,37 +311,53 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
     }
   };
 
-  // ── Handle file upload — send file directly as FormData ──
+  // ── Handle file upload — send file directly as FormData with fallback ──
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsAnalyzing(true);
-    let scannedSuccessfully = false;
+    let mappedItems: PantryItem[] = [];
+
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
       const formData = new FormData();
       formData.append('file', file);
 
       const response = await fetch(ENDPOINTS.SCAN_IMAGE, {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
-      const data = await response.json();
-      if (data.success && data.items && data.items.length > 0) {
-        const mapped = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
-        onScanComplete(mapped);
-        scannedSuccessfully = true;
-      } else {
-        alert(data.message || 'No food items detected in uploaded photo.');
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.items && data.items.length > 0) {
+          mappedItems = data.items.map((item: any, i: number) => mapDetectedToPantryItem(item, i));
+        }
       }
     } catch (err) {
-      console.error('Upload scan error:', err);
-      alert('Could not connect to scan service. Please ensure the backend server is running.');
-    } finally {
-      setIsAnalyzing(false);
-      if (scannedSuccessfully) {
-        setActiveTab('scanned-review');
+      console.warn('Backend scan unreachable, using client-side AI fallback:', err);
+    }
+
+    if (mappedItems.length === 0) {
+      try {
+        mappedItems = await analyzeImageClientSide(file);
+      } catch (fallbackErr) {
+        console.error('Fallback vision error:', fallbackErr);
       }
+    }
+
+    setIsAnalyzing(false);
+    if (mappedItems.length > 0) {
+      onScanComplete(mappedItems);
+      setActiveTab('scanned-review');
+    } else {
+      alert('Could not detect food items in uploaded photo. Try taking another picture.');
     }
   };
 
@@ -353,6 +371,9 @@ export const ScannerView: React.FC<ScannerViewProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black text-white flex flex-col justify-between overflow-hidden">
+      {/* Full-Screen Loading Overlay when Analyzing Upload */}
+      {isAnalyzing && <ScanLoadingOverlay onCancel={() => setIsAnalyzing(false)} />}
+
       {/* Hidden canvas for frame capture */}
       <canvas ref={canvasRef} className="hidden" />
 

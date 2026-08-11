@@ -20,6 +20,12 @@ export default function App() {
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null);
   const [isCookingModeOpen, setIsCookingModeOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Filter expiring items for notification badge
+  const expiringItems = pantryItems.filter(
+    item => item.daysLeft <= 2 || item.status === 'critical' || item.status === 'warning'
+  );
 
   const handleScanComplete = (scanned: PantryItem[]) => {
     // Merge new scanned items with existing pantry
@@ -51,17 +57,20 @@ export default function App() {
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        scannedCount={pantryItems.length}
+        onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        expiringItems={expiringItems}
       />
 
       {/* Main Container Layout */}
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 md:py-6 flex flex-col md:flex-row items-start relative">
-        {/* Desktop Left Navigation Bar */}
+        {/* Responsive Navigation Sidebar / Drawer */}
         <DesktopSidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pantryCount={pantryItems.length}
           recipesCount={recipes.length}
+          isMobileMenuOpen={isMobileMenuOpen}
+          onCloseMobileMenu={() => setIsMobileMenuOpen(false)}
         />
 
         {/* View Switcher Content Area */}
